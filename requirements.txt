@@ -1,5 +1,6 @@
 cyvcf2
 dask[array]
+numba
 numpy
 xarray
 zarr

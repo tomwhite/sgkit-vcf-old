@@ -1,13 +1,16 @@
 import numpy as np
+import xarray as xr
 from numpy.testing import assert_array_equal
 
-from sgkit_vcf import read_vcf
+from sgkit_vcf import vcf_to_zarr
 
 
-def test_read_vcfzarr(shared_datadir):
+def test_vcf_to_zarr__small_vcf(shared_datadir):
     path = shared_datadir / "sample.vcf.gz"
+    output = "vcf.zarr"
 
-    ds = read_vcf(path)
+    vcf_to_zarr(path, output, chunk_length=5)
+    ds = xr.open_zarr(output)  # type: ignore[no-untyped-call]
 
     assert ds.attrs["contigs"] == ["19", "20", "X"]
     assert_array_equal(ds["variant_contig"], [0, 0, 1, 1, 1, 1, 1, 1, 2])
@@ -71,3 +74,40 @@ def test_read_vcfzarr(shared_datadir):
     assert_array_equal(ds["call_genotype"], call_genotype)
     assert_array_equal(ds["call_genotype_mask"], call_genotype < 0)
     assert_array_equal(ds["call_genotype_phased"], call_genotype_phased)
+
+
+def test_vcf_to_zarr__large_vcf(shared_datadir):
+    path = path = shared_datadir / "CEUTrio.20.21.gatk3.4.g.vcf.bgz"
+    output = "vcf.zarr"
+
+    vcf_to_zarr(path, output, chunk_length=5_000)
+    ds = xr.open_zarr(output)  # type: ignore[no-untyped-call]
+
+    assert ds["sample_id"].shape == (1,)
+    assert ds["call_genotype"].shape == (19910, 1, 2)
+    assert ds["call_genotype_mask"].shape == (19910, 1, 2)
+    assert ds["call_genotype_phased"].shape == (19910, 1)
+    assert ds["variant_allele"].shape == (19910, 4)
+    assert ds["variant_contig"].shape == (19910,)
+    assert ds["variant_id"].shape == (19910,)
+    assert ds["variant_id_mask"].shape == (19910,)
+    assert ds["variant_position"].shape == (19910,)
+
+
+def test_vcf_to_zarr_parallel(shared_datadir):
+    path = path = shared_datadir / "CEUTrio.20.21.gatk3.4.g.vcf.bgz"
+    output = "vcf_concat.zarr"
+    regions = ["20", "21"]
+
+    vcf_to_zarr(path, output, regions, chunk_length=5_000)
+    ds = xr.open_zarr(output)  # type: ignore[no-untyped-call]
+
+    assert ds["sample_id"].shape == (1,)
+    assert ds["call_genotype"].shape == (19910, 1, 2)
+    assert ds["call_genotype_mask"].shape == (19910, 1, 2)
+    assert ds["call_genotype_phased"].shape == (19910, 1)
+    assert ds["variant_allele"].shape == (19910, 4)
+    assert ds["variant_contig"].shape == (19910,)
+    assert ds["variant_id"].shape == (19910,)
+    assert ds["variant_id_mask"].shape == (19910,)
+    assert ds["variant_position"].shape == (19910,)
