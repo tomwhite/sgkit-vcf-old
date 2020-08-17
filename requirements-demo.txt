@@ -1,0 +1,4 @@
+bokeh
+jupyter
+psutil
+scikit-allel
