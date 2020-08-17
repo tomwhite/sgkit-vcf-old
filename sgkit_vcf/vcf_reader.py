@@ -62,6 +62,7 @@ def vcf_to_zarr_sequential(
     output: PathType,
     region: Optional[str] = None,
     chunk_length: int = 10_000,
+    chunk_width: int = 1_000,
 ) -> None:
 
     with open_vcf(input) as vcf:
@@ -137,15 +138,19 @@ def vcf_to_zarr_sequential(
 
             if first_variants_chunk:
                 # Enforce uniform chunks in the variants dimension
+                # Also chunk in the samples direction
                 encoding = dict(
-                    call_genotype=dict(chunks=(chunk_length, n_sample, n_ploidy)),
-                    call_genotype_mask=dict(chunks=(chunk_length, n_sample, n_ploidy)),
-                    call_genotype_phased=dict(chunks=(chunk_length, n_sample)),
+                    call_genotype=dict(chunks=(chunk_length, chunk_width, n_ploidy)),
+                    call_genotype_mask=dict(
+                        chunks=(chunk_length, chunk_width, n_ploidy)
+                    ),
+                    call_genotype_phased=dict(chunks=(chunk_length, chunk_width)),
                     variant_allele=dict(chunks=(chunk_length, n_allele)),
                     variant_contig=dict(chunks=(chunk_length,)),
                     variant_id=dict(chunks=(chunk_length,)),
                     variant_id_mask=dict(chunks=(chunk_length,)),
                     variant_position=dict(chunks=(chunk_length,)),
+                    sample_id=dict(chunks=(chunk_width,)),
                 )
 
                 ds.to_zarr(output, mode="w", encoding=encoding)
@@ -160,8 +165,9 @@ def vcf_to_dataset(
     output: PathType,
     region: Optional[str] = None,
     chunk_length: int = 10_000,
+    chunk_width: int = 1_000,
 ) -> xr.Dataset:
-    vcf_to_zarr_sequential(input, output, region, chunk_length)
+    vcf_to_zarr_sequential(input, output, region, chunk_length, chunk_width)
     ds: xr.Dataset = xr.open_zarr(output)  # type: ignore[no-untyped-call]
     return ds
 
@@ -171,6 +177,7 @@ def vcf_to_zarr_parallel(
     output: PathType,
     regions: Sequence[str],
     chunk_length: int = 10_000,
+    chunk_width: int = 1_000,
 ) -> None:
     """Convert specified regions of a VCF to zarr files, then concat, rechunk, write to zarr"""
 
@@ -178,7 +185,11 @@ def vcf_to_zarr_parallel(
     for i, region in enumerate(regions):
         part = f"part-{i}.zarr"
         ds = dask.delayed(vcf_to_dataset)(
-            input, output=part, region=region, chunk_length=chunk_length
+            input,
+            output=part,
+            region=region,
+            chunk_length=chunk_length,
+            chunk_width=chunk_width,
         )
         datasets.append(ds)
     datasets = dask.compute(*datasets)
@@ -203,14 +214,27 @@ def vcf_to_zarr_parallel(
 def vcf_to_zarr(
     input: PathType,
     output: PathType,
+    *,
     regions: Union[None, str, Sequence[str]] = None,
     chunk_length: int = 10_000,
+    chunk_width: int = 1_000,
 ) -> None:
     if regions is None or isinstance(regions, str):
-        vcf_to_zarr_sequential(input, output, regions, chunk_length)
-
+        vcf_to_zarr_sequential(
+            input,
+            output,
+            region=regions,
+            chunk_length=chunk_length,
+            chunk_width=chunk_width,
+        )
     else:
-        vcf_to_zarr_parallel(input, output, regions, chunk_length)
+        vcf_to_zarr_parallel(
+            input,
+            output,
+            regions=regions,
+            chunk_length=chunk_length,
+            chunk_width=chunk_width,
+        )
 
 
 def count_variants(path: PathType, region: Optional[str] = None) -> int:

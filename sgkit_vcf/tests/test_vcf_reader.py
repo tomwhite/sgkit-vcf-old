@@ -9,7 +9,7 @@ def test_vcf_to_zarr__small_vcf(shared_datadir):
     path = shared_datadir / "sample.vcf.gz"
     output = "vcf.zarr"
 
-    vcf_to_zarr(path, output, chunk_length=5)
+    vcf_to_zarr(path, output, chunk_length=5, chunk_width=2)
     ds = xr.open_zarr(output)  # type: ignore[no-untyped-call]
 
     assert ds.attrs["contigs"] == ["19", "20", "X"]
@@ -99,7 +99,7 @@ def test_vcf_to_zarr_parallel(shared_datadir):
     output = "vcf_concat.zarr"
     regions = ["20", "21"]
 
-    vcf_to_zarr(path, output, regions, chunk_length=5_000)
+    vcf_to_zarr(path, output, regions=regions, chunk_length=5_000)
     ds = xr.open_zarr(output)  # type: ignore[no-untyped-call]
 
     assert ds["sample_id"].shape == (1,)
