@@ -37,7 +37,7 @@ def test_partition_into_regions(shared_datadir, vcf_file):
     assert sum(part_variant_counts) == total_variants
 
 
-def test_partition_into_regions__missing_argument(shared_datadir):
+def test_partition_into_regions__target_part_size(shared_datadir):
     vcf_path = shared_datadir / "CEUTrio.20.21.gatk3.4.g.vcf.bgz"
 
     regions = partition_into_regions(vcf_path, target_part_size=100_000)
@@ -49,7 +49,7 @@ def test_partition_into_regions__missing_argument(shared_datadir):
     assert sum(part_variant_counts) == total_variants
 
 
-def test_partition_into_regions__target_part_size(shared_datadir):
+def test_partition_into_regions__missing_argument(shared_datadir):
     vcf_path = shared_datadir / "CEUTrio.20.21.gatk3.4.g.vcf.bgz"
     with pytest.raises(
         ValueError, match=r"One of num_parts or target_part_size must be specified"
