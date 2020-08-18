@@ -76,6 +76,10 @@ def vcf_to_zarr_sequential(
 
         variant_contig_names = vcf.seqnames
 
+        # Remember max lengths of variable-length strings
+        max_variant_id_length = 0
+        max_variant_allele_length = 0
+
         # Iterate through variants in batches of chunk_length
 
         if region is None:
@@ -95,7 +99,9 @@ def vcf_to_zarr_sequential(
             variant_alleles = []
 
             for i, variant in enumerate(variants_chunk):
-                variant_ids.append(variant.ID if variant.ID is not None else ".")
+                variant_id = variant.ID if variant.ID is not None else "."
+                variant_ids.append(variant_id)
+                max_variant_id_length = max(max_variant_id_length, len(variant_id))
                 variant_contig[i] = variant_contig_names.index(variant.CHROM)
                 variant_position[i] = variant.POS
 
@@ -105,6 +111,9 @@ def vcf_to_zarr_sequential(
                 elif len(alleles) < n_allele:
                     alleles = alleles + ([""] * (n_allele - len(alleles)))
                 variant_alleles.append(alleles)
+                max_variant_allele_length = max(
+                    max_variant_allele_length, max(len(x) for x in alleles)
+                )
 
                 gt = variant.genotype.array()
                 call_genotype[i] = gt[..., 0:-1]
@@ -135,6 +144,8 @@ def vcf_to_zarr_sequential(
                 [DIM_VARIANT],
                 variant_id_mask,
             )
+            ds.attrs["max_variant_id_length"] = max_variant_id_length
+            ds.attrs["max_variant_allele_length"] = max_variant_allele_length
 
             if first_variants_chunk:
                 # Enforce uniform chunks in the variants dimension
@@ -194,17 +205,23 @@ def vcf_to_zarr_parallel(
         datasets.append(ds)
     datasets = dask.compute(*datasets)
 
-    # https://github.com/dask/dask/issues/5105
+    # Ensure Dask task graph is efficient, see https://github.com/dask/dask/issues/5105
     dask.config.set({"optimization.fuse.ave-width": 50})
 
-    # TODO: can we extend dask computation graph to cover these two operations too?
+    # Combine the datasets into one
     ds = xr.concat(datasets, dim="variants", data_vars="minimal")  # type: ignore[no-untyped-call, no-redef]
     ds: xr.Dataset = ds.chunk({"variants": chunk_length, "samples": chunk_width})  # type: ignore
 
-    # https://github.com/pydata/xarray/issues/3476
-    # TODO: still need to fix xarray/conventions.py:188 warning
-    del ds["variant_allele"].encoding["filters"]
-    del ds["variant_id"].encoding["filters"]
+    # Set variable length strings to fixed length ones to avoid xarray/conventions.py:188 warning
+    # (Also avoids this issue: https://github.com/pydata/xarray/issues/3476)
+    max_variant_id_length = max(ds.attrs["max_variant_id_length"] for ds in datasets)
+    max_variant_allele_length = max(
+        ds.attrs["max_variant_allele_length"] for ds in datasets
+    )
+    ds["variant_id"] = ds["variant_id"].astype(f"S{max_variant_id_length}")
+    ds["variant_allele"] = ds["variant_allele"].astype(f"S{max_variant_allele_length}")
+    del ds.attrs["max_variant_id_length"]
+    del ds.attrs["max_variant_allele_length"]
 
     delayed = ds.to_zarr(output, mode="w", compute=False)
     # delayed.visualize()
