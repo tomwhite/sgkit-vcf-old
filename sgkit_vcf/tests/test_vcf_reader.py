@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 import xarray as xr
 from numpy.testing import assert_array_equal
 
@@ -77,7 +78,7 @@ def test_vcf_to_zarr__small_vcf(shared_datadir):
 
 
 def test_vcf_to_zarr__large_vcf(shared_datadir):
-    path = path = shared_datadir / "CEUTrio.20.21.gatk3.4.g.vcf.bgz"
+    path = shared_datadir / "CEUTrio.20.21.gatk3.4.g.vcf.bgz"
     output = "vcf.zarr"
 
     vcf_to_zarr(path, output, chunk_length=5_000)
@@ -94,8 +95,8 @@ def test_vcf_to_zarr__large_vcf(shared_datadir):
     assert ds["variant_position"].shape == (19910,)
 
 
-def test_vcf_to_zarr_parallel(shared_datadir):
-    path = path = shared_datadir / "CEUTrio.20.21.gatk3.4.g.vcf.bgz"
+def test_vcf_to_zarr__parallel(shared_datadir):
+    path = shared_datadir / "CEUTrio.20.21.gatk3.4.g.vcf.bgz"
     output = "vcf_concat.zarr"
     regions = ["20", "21"]
 
@@ -113,10 +114,8 @@ def test_vcf_to_zarr_parallel(shared_datadir):
     assert ds["variant_position"].shape == (19910,)
 
 
-def test_vcf_to_zarr_parallel_partitioned(shared_datadir):
-    path = path = (
-        shared_datadir / "1000G.phase3.broad.withGenotypes.chr20.10100000.vcf.gz"
-    )
+def test_vcf_to_zarr__parallel_partitioned(shared_datadir):
+    path = shared_datadir / "1000G.phase3.broad.withGenotypes.chr20.10100000.vcf.gz"
     output = "vcf_concat.zarr"
 
     regions = partition_into_regions(path, num_parts=4)
@@ -126,3 +125,64 @@ def test_vcf_to_zarr_parallel_partitioned(shared_datadir):
 
     assert ds["sample_id"].shape == (2535,)
     assert ds["variant_id"].shape == (1406,)
+
+
+def test_vcf_to_zarr__mutiple(shared_datadir):
+    paths = [
+        shared_datadir / "CEUTrio.20.gatk3.4.g.vcf.bgz",
+        shared_datadir / "CEUTrio.21.gatk3.4.g.vcf.bgz",
+    ]
+    output = "vcf_concat.zarr"
+
+    vcf_to_zarr(paths, output, chunk_length=5_000)
+    ds = xr.open_zarr(output)  # type: ignore[no-untyped-call]
+
+    assert ds["sample_id"].shape == (1,)
+    assert ds["call_genotype"].shape == (19910, 1, 2)
+    assert ds["call_genotype_mask"].shape == (19910, 1, 2)
+    assert ds["call_genotype_phased"].shape == (19910, 1)
+    assert ds["variant_allele"].shape == (19910, 4)
+    assert ds["variant_contig"].shape == (19910,)
+    assert ds["variant_id"].shape == (19910,)
+    assert ds["variant_id_mask"].shape == (19910,)
+    assert ds["variant_position"].shape == (19910,)
+
+
+def test_vcf_to_zarr__mutiple_partitioned(shared_datadir):
+    paths = [
+        shared_datadir / "CEUTrio.20.gatk3.4.g.vcf.bgz",
+        shared_datadir / "CEUTrio.21.gatk3.4.g.vcf.bgz",
+    ]
+    output = "vcf_concat.zarr"
+
+    regions = [partition_into_regions(path, num_parts=2) for path in paths]
+
+    vcf_to_zarr(paths, output, regions=regions, chunk_length=5_000)
+    ds = xr.open_zarr(output)  # type: ignore[no-untyped-call]
+
+    assert ds["sample_id"].shape == (1,)
+    assert ds["call_genotype"].shape == (19910, 1, 2)
+    assert ds["call_genotype_mask"].shape == (19910, 1, 2)
+    assert ds["call_genotype_phased"].shape == (19910, 1)
+    assert ds["variant_allele"].shape == (19910, 4)
+    assert ds["variant_contig"].shape == (19910,)
+    assert ds["variant_id"].shape == (19910,)
+    assert ds["variant_id_mask"].shape == (19910,)
+    assert ds["variant_position"].shape == (19910,)
+
+
+def test_vcf_to_zarr__mutiple_partitioned_invalid_regions(shared_datadir):
+    paths = [
+        shared_datadir / "CEUTrio.20.gatk3.4.g.vcf.bgz",
+        shared_datadir / "CEUTrio.21.gatk3.4.g.vcf.bgz",
+    ]
+    output = "vcf_concat.zarr"
+
+    # invalid regions, should be a sequence of sequences
+    regions = partition_into_regions(paths[0], num_parts=2)
+
+    with pytest.raises(
+        ValueError,
+        match=r"Multiple input regions must be a sequence of sequence of strings",
+    ):
+        vcf_to_zarr(paths, output, regions=regions, chunk_length=5_000)

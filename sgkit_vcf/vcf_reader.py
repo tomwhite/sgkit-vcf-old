@@ -187,29 +187,50 @@ def vcf_to_dataset(
 
 
 def vcf_to_zarr_parallel(
-    input: PathType,
+    input: Union[PathType, Sequence[PathType]],
     output: PathType,
-    regions: Sequence[str],
+    regions: Union[None, Sequence[str], Sequence[Sequence[str]]],
     chunk_length: int = 10_000,
     chunk_width: int = 1_000,
 ) -> None:
     """Convert specified regions of a VCF to zarr files, then concat, rechunk, write to zarr"""
 
-    tempdir = Path(tempfile.mkdtemp("vcf_to_zarr"))
+    if isinstance(input, str) or isinstance(input, Path):
+        # Single input
+        inputs: Sequence[PathType] = [input]
+        assert regions is not None  # this would just be sequential case
+        input_regions: Sequence[Sequence[Optional[str]]] = [regions]  # type: ignore
+    else:
+        # Multiple inputs
+        inputs = input
+        if regions is None:
+            input_regions = [[None]] * len(inputs)
+        else:
+            if len(regions) == 0 or isinstance(regions[0], str):
+                raise ValueError(
+                    f"Multiple input regions must be a sequence of sequence of strings: {regions}"
+                )
+            input_regions = regions
+
+    assert len(inputs) == len(input_regions)
+
+    tempdir = Path(tempfile.mkdtemp(prefix="vcf_to_zarr_"))
 
     datasets = []
     parts = []
-    for i, region in enumerate(regions):
-        part = tempdir / f"part-{i}.zarr"
-        parts.append(part)
-        ds = dask.delayed(vcf_to_dataset)(
-            input,
-            output=part,
-            region=region,
-            chunk_length=chunk_length,
-            chunk_width=chunk_width,
-        )
-        datasets.append(ds)
+    for i, input in enumerate(inputs):
+        filename = Path(input).name
+        for r, region in enumerate(input_regions[i]):
+            part = tempdir / filename / f"part-{r}.zarr"
+            parts.append(part)
+            ds = dask.delayed(vcf_to_dataset)(
+                input,
+                output=part,
+                region=region,
+                chunk_length=chunk_length,
+                chunk_width=chunk_width,
+            )
+            datasets.append(ds)
     datasets = dask.compute(*datasets)
 
     # Ensure Dask task graph is efficient, see https://github.com/dask/dask/issues/5105
@@ -239,14 +260,16 @@ def vcf_to_zarr_parallel(
 
 
 def vcf_to_zarr(
-    input: PathType,
+    input: Union[PathType, Sequence[PathType]],
     output: PathType,
     *,
-    regions: Union[None, str, Sequence[str]] = None,
+    regions: Union[None, Sequence[str], Sequence[Sequence[str]]] = None,
     chunk_length: int = 10_000,
     chunk_width: int = 1_000,
 ) -> None:
-    if regions is None or isinstance(regions, str):
+    if (isinstance(input, str) or isinstance(input, Path)) and (
+        regions is None or isinstance(regions, str)
+    ):
         vcf_to_zarr_sequential(
             input,
             output,
