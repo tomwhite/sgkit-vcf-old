@@ -16,10 +16,10 @@ def test_record_counts(shared_datadir, vcf_file):
     # Check record counts in tabix with actual count of VCF
     vcf_path = shared_datadir / vcf_file
     tabix_path = get_tabix_path(vcf_path)
-    contigs, linear_indexes, record_counts = read_tabix(tabix_path)
+    tabix = read_tabix(tabix_path)
 
-    for i, contig in enumerate(contigs):
-        assert record_counts[i] == count_variants(vcf_path, contig)
+    for i, contig in enumerate(tabix.sequence_names):
+        assert tabix.record_counts[i] == count_variants(vcf_path, contig)
 
 
 @pytest.mark.parametrize(

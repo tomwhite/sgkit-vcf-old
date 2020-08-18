@@ -1,6 +1,6 @@
 import gzip
 import struct
-from collections import namedtuple
+from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Any, Optional, Sequence, Union
 
@@ -18,41 +18,69 @@ def _read_bytes(f: IO[Any], fmt: str, nodata: Any = None) -> Union[Any, Sequence
     return struct.Struct(fmt).unpack(data)
 
 
-Header = namedtuple("Header", "n_ref format col_seq col_beg col_end meta skip l_nm")
-Bin = namedtuple("Bin", "bin n_chunk")
-Chunk = namedtuple("Chunk", "cnk_beg cnk_end")
+@dataclass
+class Header:
+    n_ref: int
+    format: int
+    col_seq: int
+    col_beg: int
+    col_end: int
+    meta: int
+    skip: int
+    l_nm: int
 
 
-def read_tabix(file: PathType) -> Any:  # TODO: improve return type
+@dataclass
+class Chunk:
+    cnk_beg: int
+    cnk_end: int
+
+
+@dataclass
+class Bin:
+    bin: int
+    chunks: Sequence[Chunk]
+
+
+@dataclass
+class TabixIndex:
+    header: Header
+    sequence_names: Sequence[str]
+    bins: Sequence[Bin]
+    linear_indexes: Sequence[Sequence[int]]
+    record_counts: Sequence[int]
+
+
+def read_tabix(file: PathType) -> TabixIndex:
     """Parse a tabix file into a queryable datastructure"""
     with gzip.open(file) as f:
         (magic,) = _read_bytes(f, "4s")
         assert magic == b"TBI\x01"
 
-        header = Header._make(_read_bytes(f, "<8i"))
+        header = Header(*_read_bytes(f, "<8i"))
 
-        names = []
+        sequence_names = []
         linear_indexes = []
         record_counts = []
 
         if header.l_nm > 0:
             (names,) = _read_bytes(f, f"<{header.l_nm}s")
             # Convert \0-terminated names to strings
-            names = [str(name, "utf-8") for name in names.split(b"\x00")[:-1]]  # type: ignore
+            sequence_names = [str(name, "utf-8") for name in names.split(b"\x00")[:-1]]
 
             for _ in range(header.n_ref):
                 (n_bin,) = _read_bytes(f, "<i")
                 bins = []
                 record_count = -1
                 for _ in range(n_bin):
-                    bin = Bin._make(_read_bytes(f, "<Ii"))
+                    bin, n_chunk = _read_bytes(f, "<Ii")
                     chunks = []
-                    for _ in range(bin.n_chunk):
-                        chunk = Chunk._make(_read_bytes(f, "<QQ"))
+                    for _ in range(n_chunk):
+                        chunk = Chunk(*_read_bytes(f, "<QQ"))
                         chunks.append(chunk)
-                    bins.append(bin)
+                    bins.append(Bin(bin, chunks))
 
-                    if bin.bin == 37450:  # pseudo-bin, see section 5.2 of BAM spec
+                    if bin == 37450:  # pseudo-bin, see section 5.2 of BAM spec
                         assert len(chunks) == 2
                         n_mapped, n_unmapped = chunks[1].cnk_beg, chunks[1].cnk_end
                         record_count = n_mapped + n_unmapped
@@ -74,7 +102,7 @@ def read_tabix(file: PathType) -> Any:  # TODO: improve return type
 
         assert end == uncompressed_file_length
 
-        return names, linear_indexes, record_counts
+        return TabixIndex(header, sequence_names, bins, linear_indexes, record_counts)
 
 
 def get_file_length(path: Path) -> int:
@@ -127,11 +155,11 @@ def partition_into_regions(
     part_lengths = np.array([i * target_part_size for i in range(num_parts)])  # type: ignore
 
     # Get the contig names and their linear indexes from tabix
-    names, linear_indexes, _ = read_tabix(tabix_path)
+    tabix = read_tabix(tabix_path)
 
     # Combine the linear indexes and calculate their sizes
-    linear_index = np.array([i for li in linear_indexes for i in li])
-    linear_index_sizes = np.array([len(li) for li in linear_indexes])
+    linear_index = np.array([i for li in tabix.linear_indexes for i in li])
+    linear_index_sizes = np.array([len(li) for li in tabix.linear_indexes])
     linear_index_cum_sizes = np.cumsum(linear_index_sizes)
     assert sum(linear_index_sizes) == len(linear_index)
 
@@ -143,7 +171,7 @@ def partition_into_regions(
 
     # Calculate region contig and start for each index
     region_contig_indexes = np.searchsorted(linear_index_cum_sizes, ind)
-    region_contigs = [names[i] for i in region_contig_indexes]
+    region_contigs = [tabix.sequence_names[i] for i in region_contig_indexes]
 
     linear_index_cum_sizes_0 = np.insert(linear_index_cum_sizes, 0, 0)
     per_contig_linear_index_ind = ind - linear_index_cum_sizes_0[region_contig_indexes]
