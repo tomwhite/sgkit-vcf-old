@@ -1,5 +1,8 @@
 import itertools
+import shutil
+import tempfile
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Iterator, Optional, Sequence, TypeVar, Union
 
 import dask
@@ -179,7 +182,7 @@ def vcf_to_dataset(
     chunk_width: int = 1_000,
 ) -> xr.Dataset:
     vcf_to_zarr_sequential(input, output, region, chunk_length, chunk_width)
-    ds: xr.Dataset = xr.open_zarr(output)  # type: ignore[no-untyped-call]
+    ds: xr.Dataset = xr.open_zarr(str(output))  # type: ignore[no-untyped-call]
     return ds
 
 
@@ -192,9 +195,13 @@ def vcf_to_zarr_parallel(
 ) -> None:
     """Convert specified regions of a VCF to zarr files, then concat, rechunk, write to zarr"""
 
+    tempdir = Path(tempfile.mkdtemp("vcf_to_zarr"))
+
     datasets = []
+    parts = []
     for i, region in enumerate(regions):
-        part = f"part-{i}.zarr"
+        part = tempdir / f"part-{i}.zarr"
+        parts.append(part)
         ds = dask.delayed(vcf_to_dataset)(
             input,
             output=part,
@@ -226,6 +233,9 @@ def vcf_to_zarr_parallel(
     delayed = ds.to_zarr(output, mode="w", compute=False)
     # delayed.visualize()
     delayed.compute()
+
+    # Delete intermediate files from temporary directory
+    shutil.rmtree(tempdir)
 
 
 def vcf_to_zarr(
