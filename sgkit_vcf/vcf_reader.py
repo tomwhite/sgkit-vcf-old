@@ -199,7 +199,7 @@ def vcf_to_zarr_parallel(
 
     # TODO: can we extend dask computation graph to cover these two operations too?
     ds = xr.concat(datasets, dim="variants", data_vars="minimal")  # type: ignore[no-untyped-call, no-redef]
-    ds: xr.Dataset = ds.chunk({"variants": chunk_length})  # type: ignore
+    ds: xr.Dataset = ds.chunk({"variants": chunk_length, "samples": chunk_width})  # type: ignore
 
     # https://github.com/pydata/xarray/issues/3476
     # TODO: still need to fix xarray/conventions.py:188 warning

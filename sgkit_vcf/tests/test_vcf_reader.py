@@ -2,7 +2,7 @@ import numpy as np
 import xarray as xr
 from numpy.testing import assert_array_equal
 
-from sgkit_vcf import vcf_to_zarr
+from sgkit_vcf import partition_into_regions, vcf_to_zarr
 
 
 def test_vcf_to_zarr__small_vcf(shared_datadir):
@@ -111,3 +111,18 @@ def test_vcf_to_zarr_parallel(shared_datadir):
     assert ds["variant_id"].shape == (19910,)
     assert ds["variant_id_mask"].shape == (19910,)
     assert ds["variant_position"].shape == (19910,)
+
+
+def test_vcf_to_zarr_parallel_partitioned(shared_datadir):
+    path = path = (
+        shared_datadir / "1000G.phase3.broad.withGenotypes.chr20.10100000.vcf.gz"
+    )
+    output = "vcf_concat.zarr"
+
+    regions = partition_into_regions(path, num_parts=4)
+
+    vcf_to_zarr(path, output, regions=regions, chunk_length=1_000, chunk_width=1_000)
+    ds = xr.open_zarr(output)  # type: ignore[no-untyped-call]
+
+    assert ds["sample_id"].shape == (2535,)
+    assert ds["variant_id"].shape == (1406,)
