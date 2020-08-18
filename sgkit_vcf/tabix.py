@@ -13,7 +13,7 @@ TABIX_LINEAR_INDEX_INTERVAL_SIZE = 1 << 14  # 16kb interval size
 
 def _read_bytes(f: IO[Any], fmt: str, nodata: Any = None) -> Union[Any, Sequence[Any]]:
     data = f.read(struct.calcsize(fmt))
-    if not data:
+    if not data:  # pragma: no cover
         return nodata
     return struct.Struct(fmt).unpack(data)
 
