@@ -303,7 +303,7 @@ def partition_into_regions(
     index_path: Optional[PathType] = None,
     num_parts: Optional[int] = None,
     target_part_size: Optional[int] = None,
-) -> Sequence[str]:
+) -> Optional[Sequence[str]]:
     """
     Calculate genomic region strings to partition a VCF file into roughly equal parts.
     """
@@ -312,6 +312,12 @@ def partition_into_regions(
 
     if num_parts is not None and target_part_size is not None:
         raise ValueError("Only one of num_parts or target_part_size may be specified")
+
+    if num_parts is not None and num_parts < 1:
+        raise ValueError("num_parts must be positive")
+
+    if target_part_size is not None and target_part_size < 1:
+        raise ValueError("target_part_size must be positive")
 
     if index_path is None:
         index_path = get_tabix_path(vcf_path)
@@ -326,6 +332,8 @@ def partition_into_regions(
         target_part_size = file_length // num_parts
     elif target_part_size is not None:
         num_parts = ceildiv(file_length, target_part_size)
+    if num_parts == 1:
+        return None
     part_lengths = np.array([i * target_part_size for i in range(num_parts)])  # type: ignore
 
     # Get the file offsets from .tbi/.csi
@@ -338,6 +346,9 @@ def partition_into_regions(
 
     # Drop any parts that are greater than the file offsets (these will be covered by a region with no end)
     ind = np.delete(ind, ind >= len(file_offsets))
+
+    # Drop any duplicates
+    ind = np.unique(ind)
 
     # Calculate region contig and start for each index
     region_contigs = region_contig_indexes[ind]

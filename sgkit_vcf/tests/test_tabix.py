@@ -47,10 +47,24 @@ def test_record_counts_csi(shared_datadir, vcf_file):
         "NA12878.prod.chr20snippet.g.vcf.gz",
     ],
 )
-def test_partition_into_regions(shared_datadir, vcf_file):
+def test_partition_into_regions__num_parts(shared_datadir, vcf_file):
     vcf_path = shared_datadir / vcf_file
 
     regions = partition_into_regions(vcf_path, num_parts=4)
+
+    assert regions is not None
+    part_variant_counts = [count_variants(vcf_path, region) for region in regions]
+    total_variants = count_variants(vcf_path)
+
+    assert sum(part_variant_counts) == total_variants
+
+
+def test_partition_into_regions__num_parts_large(shared_datadir):
+    vcf_path = shared_datadir / "CEUTrio.20.21.gatk3.4.g.vcf.bgz"
+
+    regions = partition_into_regions(vcf_path, num_parts=100)
+    assert regions is not None
+    assert len(regions) == 18
 
     part_variant_counts = [count_variants(vcf_path, region) for region in regions]
     total_variants = count_variants(vcf_path)
@@ -62,6 +76,7 @@ def test_partition_into_regions__target_part_size(shared_datadir):
     vcf_path = shared_datadir / "CEUTrio.20.21.gatk3.4.g.vcf.bgz"
 
     regions = partition_into_regions(vcf_path, target_part_size=100_000)
+    assert regions is not None
     assert len(regions) == 5
 
     part_variant_counts = [count_variants(vcf_path, region) for region in regions]
@@ -70,20 +85,29 @@ def test_partition_into_regions__target_part_size(shared_datadir):
     assert sum(part_variant_counts) == total_variants
 
 
-def test_partition_into_regions__missing_argument(shared_datadir):
+def test_partition_into_regions__invalid_arguments(shared_datadir):
     vcf_path = shared_datadir / "CEUTrio.20.21.gatk3.4.g.vcf.bgz"
+
     with pytest.raises(
         ValueError, match=r"One of num_parts or target_part_size must be specified"
     ):
         partition_into_regions(vcf_path)
 
-
-def test_partition_into_regions__incompatible_arguments(shared_datadir):
-    vcf_path = shared_datadir / "CEUTrio.20.21.gatk3.4.g.vcf.bgz"
     with pytest.raises(
         ValueError, match=r"Only one of num_parts or target_part_size may be specified"
     ):
         partition_into_regions(vcf_path, num_parts=4, target_part_size=100_000)
+
+    with pytest.raises(ValueError, match=r"num_parts must be positive"):
+        partition_into_regions(vcf_path, num_parts=0)
+
+    with pytest.raises(ValueError, match=r"target_part_size must be positive"):
+        partition_into_regions(vcf_path, target_part_size=0)
+
+
+def test_partition_into_regions__one_part(shared_datadir):
+    vcf_path = shared_datadir / "CEUTrio.20.21.gatk3.4.g.vcf.bgz"
+    assert partition_into_regions(vcf_path, num_parts=1) is None
 
 
 def test_partition_into_regions__gnomad(shared_datadir):
