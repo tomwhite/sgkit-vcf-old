@@ -277,7 +277,17 @@ def partition_into_regions(
     target_part_size: Optional[int] = None,
 ) -> Optional[Sequence[str]]:
     """
-    Calculate genomic region strings to partition a VCF file into roughly equal parts.
+    Calculate genomic region strings to partition a compressed VCF or BCF file into roughly equal parts.
+
+    A .tbi or .csi file is used to find BGZF boundaries in the compressed VCF file, which are then
+    used to divide the file into parts.
+
+    The number of parts can specified directly by providing `num_parts`, or by specifying the
+    desired size of each part by providing `target_part_size`. Exactly one of `num_parts` or
+    `target_part_size` must be provided.
+
+    Both `num_parts` and `target_part_size` serve as hints: the number of parts and their sizes
+    may be more or less than these parameters.
     """
     if num_parts is None and target_part_size is None:
         raise ValueError("One of num_parts or target_part_size must be specified")
