@@ -3,7 +3,7 @@ import shutil
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator, Optional, Sequence, TypeVar, Union
+from typing import Iterator, Optional, Sequence, Union
 
 import dask
 import numpy as np
@@ -12,10 +12,9 @@ from cyvcf2 import VCF, Variant
 
 from sgkit.api import DIM_VARIANT, create_genotype_call_dataset
 from sgkit.typing import PathType
+from sgkit_vcf.utils import chunks
 
 DEFAULT_ALT_NUMBER = 3  # see vcf_read.py in scikit_allel
-
-T = TypeVar("T")
 
 
 @contextmanager
@@ -26,18 +25,6 @@ def open_vcf(path: PathType) -> VCF:
         yield vcf
     finally:
         vcf.close()
-
-
-# https://dev.to/orenovadia/solution-chunked-iterator-python-riddle-3ple
-def chunks(iterator: Iterator[T], n: int) -> Iterator[Iterator[T]]:
-    """
-    Convert an iterator into an iterator of iterators, where the inner iterators
-    each return `n` items, except the last, which may return fewer.
-    """
-
-    for first in iterator:  # take one item out (exits loop if `iterator` is empty)
-        rest_of_chunk = itertools.islice(iterator, 0, n - 1)
-        yield itertools.chain([first], rest_of_chunk)  # concatenate the first item back
 
 
 def region_filter(

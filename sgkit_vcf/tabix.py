@@ -1,22 +1,15 @@
 import gzip
-import struct
 from dataclasses import dataclass
 from pathlib import Path
-from typing import IO, Any, Optional, Sequence, Union
+from typing import Any, Optional, Sequence
 
 import numpy as np
 from cyvcf2 import VCF
 
 from sgkit.typing import PathType
+from sgkit_vcf.utils import at_eof, ceildiv, get_file_length, read_bytes
 
 TABIX_LINEAR_INDEX_INTERVAL_SIZE = 1 << 14  # 16kb interval size
-
-
-def _read_bytes(f: IO[Any], fmt: str, nodata: Any = None) -> Union[Any, Sequence[Any]]:
-    data = f.read(struct.calcsize(fmt))
-    if not data:
-        return nodata
-    return struct.Struct(fmt).unpack(data)
 
 
 @dataclass
@@ -79,10 +72,10 @@ class TabixIndex:
 def read_tabix(file: PathType) -> TabixIndex:
     """Parse a tabix file into a queryable datastructure"""
     with gzip.open(file) as f:
-        (magic,) = _read_bytes(f, "4s")
+        (magic,) = read_bytes(f, "4s")
         assert magic == b"TBI\x01"
 
-        header = Header(*_read_bytes(f, "<8i"))
+        header = Header(*read_bytes(f, "<8i"))
 
         sequence_names = []
         bins = []
@@ -90,19 +83,19 @@ def read_tabix(file: PathType) -> TabixIndex:
         record_counts = []
 
         if header.l_nm > 0:
-            (names,) = _read_bytes(f, f"<{header.l_nm}s")
+            (names,) = read_bytes(f, f"<{header.l_nm}s")
             # Convert \0-terminated names to strings
             sequence_names = [str(name, "utf-8") for name in names.split(b"\x00")[:-1]]
 
             for _ in range(header.n_ref):
-                (n_bin,) = _read_bytes(f, "<i")
+                (n_bin,) = read_bytes(f, "<i")
                 seq_bins = []
                 record_count = -1
                 for _ in range(n_bin):
-                    bin, n_chunk = _read_bytes(f, "<Ii")
+                    bin, n_chunk = read_bytes(f, "<Ii")
                     chunks = []
                     for _ in range(n_chunk):
-                        chunk = Chunk(*_read_bytes(f, "<QQ"))
+                        chunk = Chunk(*read_bytes(f, "<QQ"))
                         chunks.append(chunk)
                     seq_bins.append(Bin(bin, chunks))
 
@@ -110,24 +103,18 @@ def read_tabix(file: PathType) -> TabixIndex:
                         assert len(chunks) == 2
                         n_mapped, n_unmapped = chunks[1].cnk_beg, chunks[1].cnk_end
                         record_count = n_mapped + n_unmapped
-                (n_intv,) = _read_bytes(f, "<i")
+                (n_intv,) = read_bytes(f, "<i")
                 linear_index = []
                 for _ in range(n_intv):
-                    (ioff,) = _read_bytes(f, "<Q")
+                    (ioff,) = read_bytes(f, "<Q")
                     linear_index.append(ioff)
                 bins.append(seq_bins)
                 linear_indexes.append(linear_index)
                 record_counts.append(record_count)
 
-        (n_no_coor,) = _read_bytes(f, "<Q", (0,))
+        (n_no_coor,) = read_bytes(f, "<Q", (0,))
 
-        # Check we have consumed all of file
-        end = f.tell()
-
-        f.seek(0, 2)
-        uncompressed_file_length = f.tell()
-
-        assert end == uncompressed_file_length
+        assert at_eof(f)
 
         return TabixIndex(header, sequence_names, bins, linear_indexes, record_counts)
 
@@ -198,12 +185,12 @@ def get_first_locus_in_bin(csi: CSIIndex, bin: int) -> int:
 def read_csi(file: PathType) -> CSIIndex:
     """Parse a CSI file into a queryable datastructure"""
     with gzip.open(file) as f:
-        (magic,) = _read_bytes(f, "4s")
+        (magic,) = read_bytes(f, "4s")
         assert magic == b"CSI\x01"
 
-        min_shift, depth, l_aux = _read_bytes(f, "<3i")
-        (aux,) = _read_bytes(f, f"{l_aux}s", ("",))
-        (n_ref,) = _read_bytes(f, "<i")
+        min_shift, depth, l_aux = read_bytes(f, "<3i")
+        (aux,) = read_bytes(f, f"{l_aux}s", ("",))
+        (n_ref,) = read_bytes(f, "<i")
 
         pseudo_bin = bin_limit(min_shift, depth) + 1
 
@@ -212,14 +199,14 @@ def read_csi(file: PathType) -> CSIIndex:
 
         if n_ref > 0:
             for _ in range(n_ref):
-                (n_bin,) = _read_bytes(f, "<i")
+                (n_bin,) = read_bytes(f, "<i")
                 seq_bins = []
                 record_count = -1
                 for _ in range(n_bin):
-                    bin, loffset, n_chunk = _read_bytes(f, "<IQi")
+                    bin, loffset, n_chunk = read_bytes(f, "<IQi")
                     chunks = []
                     for _ in range(n_chunk):
-                        chunk = Chunk(*_read_bytes(f, "<QQ"))
+                        chunk = Chunk(*read_bytes(f, "<QQ"))
                         chunks.append(chunk)
                     seq_bins.append(CSIBin(bin, loffset, chunks))
 
@@ -230,22 +217,11 @@ def read_csi(file: PathType) -> CSIIndex:
                 bins.append(seq_bins)
                 record_counts.append(record_count)
 
-        (n_no_coor,) = _read_bytes(f, "<Q", (0,))
+        (n_no_coor,) = read_bytes(f, "<Q", (0,))
 
-        # Check we have consumed all of file
-        end = f.tell()
-
-        f.seek(0, 2)
-        uncompressed_file_length = f.tell()
-
-        assert end == uncompressed_file_length
+        assert at_eof(f)
 
         return CSIIndex(min_shift, depth, aux, bins, record_counts)
-
-
-def get_file_length(path: Path) -> int:
-    """Get the length of a file in bytes."""
-    return path.stat().st_size
 
 
 def get_file_offset(vfp: int) -> int:
@@ -291,10 +267,6 @@ def get_sequence_names(vcf_path: Path, index: Any) -> Any:
         return index.sequence_names
     except AttributeError:
         return VCF(vcf_path).seqnames
-
-
-def ceildiv(a: int, b: int) -> int:
-    return -(-a // b)
 
 
 def partition_into_regions(
