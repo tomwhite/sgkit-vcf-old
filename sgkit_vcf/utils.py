@@ -28,6 +28,12 @@ def get_file_length(path: Path) -> int:
     return path.stat().st_size
 
 
+def get_file_offset(vfp: int) -> int:
+    """Convert a block compressed virtual file pointer to a file offset."""
+    address_mask = 0xFFFFFFFFFFFF
+    return vfp >> 16 & address_mask
+
+
 def read_bytes(
     f: IO[Any], fmt: str, nodata: Optional[Sequence[Any]] = None
 ) -> Sequence[Any]:

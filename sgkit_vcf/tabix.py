@@ -7,7 +7,13 @@ import numpy as np
 from cyvcf2 import VCF
 
 from sgkit.typing import PathType
-from sgkit_vcf.utils import at_eof, ceildiv, get_file_length, read_bytes
+from sgkit_vcf.utils import (
+    at_eof,
+    ceildiv,
+    get_file_length,
+    get_file_offset,
+    read_bytes,
+)
 
 TABIX_LINEAR_INDEX_INTERVAL_SIZE = 1 << 14  # 16kb interval size
 
@@ -222,12 +228,6 @@ def read_csi(file: PathType) -> CSIIndex:
         assert at_eof(f)
 
         return CSIIndex(min_shift, depth, aux, bins, record_counts)
-
-
-def get_file_offset(vfp: int) -> int:
-    """Convert a block compressed virtual file pointer to a file offset."""
-    address_mask = 0xFFFFFFFFFFFF
-    return vfp >> 16 & address_mask
 
 
 def region_string(contig: str, start: int, end: Optional[int] = None) -> str:
